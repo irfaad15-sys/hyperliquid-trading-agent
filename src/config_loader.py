@@ -74,6 +74,7 @@ CONFIG = {
     "mnemonic": _get_env("MNEMONIC"),
     "hyperliquid_base_url": _get_env("HYPERLIQUID_BASE_URL"),
     "hyperliquid_network": _get_env("HYPERLIQUID_NETWORK", "mainnet"),
+    "hyperliquid_vault_address": _get_env("HYPERLIQUID_VAULT_ADDRESS"),  # Main wallet address (agent signs on behalf)
 
     # LLM — Anthropic Claude API (primary)
     "anthropic_api_key": _get_env("ANTHROPIC_API_KEY", required=True),

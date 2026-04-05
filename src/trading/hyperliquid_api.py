@@ -63,12 +63,17 @@ class HyperliquidAPI:
             else:
                 base_url = constants.MAINNET_API_URL
         self.base_url = base_url
+        # Vault address: the main wallet that holds funds.
+        # The agent wallet (private key) is just the signer.
+        self.vault_address = CONFIG.get("hyperliquid_vault_address")
+        # The address to query for state — vault if set, otherwise the signer
+        self.query_address = self.vault_address or self.wallet.address
         self._build_clients()
 
     def _build_clients(self):
         """Instantiate exchange and info client instances for the active base URL."""
         self.info = Info(self.base_url)
-        self.exchange = Exchange(self.wallet, self.base_url)
+        self.exchange = Exchange(self.wallet, self.base_url, vault_address=self.vault_address)
 
     def _reset_clients(self):
         """Recreate SDK clients after connection failures while logging failures."""
@@ -253,7 +258,7 @@ class HyperliquidAPI:
     async def cancel_all_orders(self, asset):
         """Cancel every open order for ``asset`` owned by the configured wallet."""
         try:
-            open_orders = await self._retry(lambda: self.info.frontend_open_orders(self.wallet.address))
+            open_orders = await self._retry(lambda: self.info.frontend_open_orders(self.query_address))
             for order in open_orders:
                 if order.get("coin") == asset:
                     oid = order.get("oid")
@@ -271,7 +276,7 @@ class HyperliquidAPI:
             List of order dictionaries augmented with ``triggerPx`` when present.
         """
         try:
-            orders = await self._retry(lambda: self.info.frontend_open_orders(self.wallet.address))
+            orders = await self._retry(lambda: self.info.frontend_open_orders(self.query_address))
             # Normalize trigger price if present in orderType
             for o in orders:
                 try:
@@ -299,9 +304,9 @@ class HyperliquidAPI:
         try:
             # Some SDK versions expose user_fills; fall back gracefully if absent
             if hasattr(self.info, 'user_fills'):
-                fills = await self._retry(lambda: self.info.user_fills(self.wallet.address))
+                fills = await self._retry(lambda: self.info.user_fills(self.query_address))
             elif hasattr(self.info, 'fills'):
-                fills = await self._retry(lambda: self.info.fills(self.wallet.address))
+                fills = await self._retry(lambda: self.info.fills(self.query_address))
             else:
                 return []
             if isinstance(fills, list):
@@ -338,7 +343,7 @@ class HyperliquidAPI:
         Returns:
             Dictionary with ``balance``, ``total_value``, and ``positions``.
         """
-        state = await self._retry(lambda: self.info.user_state(self.wallet.address))
+        state = await self._retry(lambda: self.info.user_state(self.query_address))
         positions = state.get("assetPositions", [])
         total_value = float(state.get("accountValue", 0.0))
         enriched_positions = []
