@@ -209,6 +209,12 @@ class RiskManager:
         if alloc_usd <= 0:
             return False, "Zero or negative allocation", trade
 
+        # Hyperliquid minimum order size is $10
+        if alloc_usd < 11.0:
+            alloc_usd = 11.0
+            trade = {**trade, "allocation_usd": alloc_usd}
+            logging.info("RISK: Bumped allocation to $11 (Hyperliquid $10 minimum)")
+
         account_value = float(account_state.get("total_value", 0))
         balance = float(account_state.get("balance", 0))
         positions = account_state.get("positions", [])

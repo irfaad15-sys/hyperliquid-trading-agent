@@ -130,6 +130,8 @@ class TradingAgent:
                 f.write(f"Last message role: {last.get('role')}\n")
                 f.write(f"Last message content (truncated): {content_str}\n")
 
+        enable_tools = CONFIG.get("enable_tool_calling", False)
+
         def _call_claude(msgs, use_tools=True):
             """Make a Claude API call with optional tool use."""
             _log_request(self.model, msgs)
@@ -139,7 +141,7 @@ class TradingAgent:
                 "system": system_prompt,
                 "messages": msgs,
             }
-            if use_tools:
+            if use_tools and enable_tools:
                 kwargs["tools"] = tools
             if CONFIG.get("thinking_enabled"):
                 kwargs["thinking"] = {
@@ -310,8 +312,17 @@ class TradingAgent:
                 logging.error("Empty response from Claude")
                 break
 
+            # Strip markdown code fences if present
+            cleaned = raw_text.strip()
+            if cleaned.startswith("```"):
+                # Remove opening fence (```json or ```)
+                first_newline = cleaned.index("\n")
+                cleaned = cleaned[first_newline + 1:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].rstrip()
+
             try:
-                parsed = json.loads(raw_text)
+                parsed = json.loads(cleaned)
                 if not isinstance(parsed, dict):
                     logging.error("Expected dict, got: %s; attempting sanitize", type(parsed))
                     return _sanitize_output(raw_text, assets)

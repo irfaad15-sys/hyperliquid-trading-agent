@@ -391,6 +391,30 @@ def main():
             if reasoning_text:
                 add_event(f"LLM reasoning summary: {reasoning_text}")
 
+            # Log full cycle decisions for the dashboard
+            cycle_decisions = []
+            for d in outputs.get("trade_decisions", []) if isinstance(outputs, dict) else []:
+                cycle_decisions.append({
+                    "asset": d.get("asset"),
+                    "action": d.get("action", "hold"),
+                    "allocation_usd": d.get("allocation_usd", 0),
+                    "rationale": d.get("rationale", ""),
+                })
+            cycle_log = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "cycle": invocation_count,
+                "reasoning": reasoning_text[:2000] if reasoning_text else "",
+                "decisions": cycle_decisions,
+                "account_value": round_or_none(account_value, 2),
+                "balance": round_or_none(state['balance'], 2),
+                "positions_count": len([p for p in state['positions'] if abs(float(p.get('szi') or 0)) > 0]),
+            }
+            try:
+                with open("decisions.jsonl", "a") as f:
+                    f.write(json.dumps(cycle_log) + "\n")
+            except Exception:
+                pass
+
             # Execute trades for each asset
             for output in outputs.get("trade_decisions", []) if isinstance(outputs, dict) else []:
                 try:
