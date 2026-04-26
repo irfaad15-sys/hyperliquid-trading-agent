@@ -16,6 +16,7 @@ import math  # For Sharpe
 from dotenv import load_dotenv
 import os
 import json
+import time
 from aiohttp import web
 from src.utils.formatting import format_number as fmt, format_size as fmt_sz
 from src.utils.prompt_utils import json_default, round_or_none, round_series
@@ -470,13 +471,18 @@ def main():
                         else:
                             order = await hyperliquid.place_buy_order(asset, amount) if is_buy else await hyperliquid.place_sell_order(asset, amount)
 
-                        # Confirm by checking recent fills for this asset shortly after placing
+                        # Confirm by checking recent fills for this asset shortly after placing.
+                        # Use a 30-second timestamp window to avoid false positives from
+                        # older fills on the same coin (e.g. stale SL/TP fills).
                         await asyncio.sleep(1)
                         fills_check = await hyperliquid.get_recent_fills(limit=10)
+                        cutoff_ms = (time.time() - 30) * 1000
                         filled = False
                         for fc in reversed(fills_check):
                             try:
-                                if (fc.get('coin') == asset or fc.get('asset') == asset):
+                                fill_time = int(fc.get('time') or fc.get('timestamp') or 0)
+                                coin_match = (fc.get('coin') == asset or fc.get('asset') == asset)
+                                if coin_match and fill_time > cutoff_ms:
                                     filled = True
                                     break
                             except Exception:
