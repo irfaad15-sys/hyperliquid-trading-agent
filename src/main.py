@@ -269,22 +269,36 @@ def main():
                 "recent_fills": recent_fills_struct,
             }
 
-            # Gather data for ALL assets first (using Hyperliquid candles + local indicators)
+            # Gather data for ALL assets concurrently — price, OI, funding, and
+            # both candle timeframes are fetched in parallel per asset, and all
+            # assets are fetched simultaneously.
+            async def _fetch_asset_data(asset):
+                current_price, oi, funding, candles_5m, candles_4h = await asyncio.gather(
+                    hyperliquid.get_current_price(asset),
+                    hyperliquid.get_open_interest(asset),
+                    hyperliquid.get_funding_rate(asset),
+                    hyperliquid.get_candles(asset, "5m", 100),
+                    hyperliquid.get_candles(asset, "4h", 100),
+                )
+                return asset, current_price, oi, funding, candles_5m, candles_4h
+
+            raw_results = await asyncio.gather(
+                *[_fetch_asset_data(a) for a in args.assets],
+                return_exceptions=True
+            )
+
             market_sections = []
             asset_prices = {}
-            for asset in args.assets:
+            for result in raw_results:
+                if isinstance(result, Exception):
+                    add_event(f"Data gather error: {result}")
+                    continue
                 try:
-                    current_price = await hyperliquid.get_current_price(asset)
+                    asset, current_price, oi, funding, candles_5m, candles_4h = result
                     asset_prices[asset] = current_price
                     if asset not in price_history:
                         price_history[asset] = deque(maxlen=60)
                     price_history[asset].append({"t": datetime.now(timezone.utc).isoformat(), "mid": round_or_none(current_price, 2)})
-                    oi = await hyperliquid.get_open_interest(asset)
-                    funding = await hyperliquid.get_funding_rate(asset)
-
-                    # Fetch candles from Hyperliquid and compute indicators locally
-                    candles_5m = await hyperliquid.get_candles(asset, "5m", 100)
-                    candles_4h = await hyperliquid.get_candles(asset, "4h", 100)
 
                     intra = compute_all(candles_5m)
                     lt = compute_all(candles_4h)
@@ -321,7 +335,7 @@ def main():
                         "recent_mid_prices": recent_mids,
                     })
                 except Exception as e:
-                    add_event(f"Data gather error {asset}: {e}")
+                    add_event(f"Data process error {result[0] if result else '?'}: {e}")
                     continue
 
             # Single LLM call with all assets
