@@ -101,6 +101,13 @@ CONFIG = {
     "max_concurrent_positions": _get_env("MAX_CONCURRENT_POSITIONS", "10"),
     "min_balance_reserve_pct": _get_env("MIN_BALANCE_RESERVE_PCT", "10"),
 
+    # Email alerting
+    "alert_email_from": _get_env("ALERT_EMAIL_FROM"),
+    "alert_email_to": _get_env("ALERT_EMAIL_TO"),
+    "alert_email_password": _get_env("ALERT_EMAIL_PASSWORD"),
+    "alert_smtp_host": _get_env("ALERT_SMTP_HOST", "smtp.gmail.com"),
+    "alert_smtp_port": _get_env("ALERT_SMTP_PORT", "587"),
+
     # API server
     "api_host": _get_env("API_HOST", "0.0.0.0"),
     "api_port": _get_env("APP_PORT") or _get_env("API_PORT") or "3000",

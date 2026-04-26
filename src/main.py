@@ -20,6 +20,7 @@ import time
 from aiohttp import web
 from src.utils.formatting import format_number as fmt, format_size as fmt_sz
 from src.utils.prompt_utils import json_default, round_or_none, round_series
+from src.notifications.emailer import Emailer
 
 load_dotenv()
 
@@ -69,6 +70,7 @@ def main():
     hyperliquid = HyperliquidAPI()
     agent = TradingAgent(hyperliquid=hyperliquid)
     risk_mgr = RiskManager()
+    emailer = Emailer()
 
 
     start_time = datetime.now(timezone.utc)
@@ -108,6 +110,11 @@ def main():
 
             # Global account state
             state = await hyperliquid.get_user_state()
+            emailer.maybe_send_digest(
+                balance=float(state.get('balance', 0)),
+                daily_return_pct=total_return_pct if invocation_count > 1 else 0.0,
+                open_positions=len([p for p in state.get('positions', []) if abs(float(p.get('szi') or 0)) > 0]),
+            )
             balance = state.get('balance', 0.0)
             if balance == 0.0:
                 logging.warning("Account balance is 0 — API response may be incomplete")
@@ -142,6 +149,12 @@ def main():
                     size = ptc["size"]
                     is_long = ptc["is_long"]
                     add_event(f"RISK FORCE-CLOSE: {coin} at {ptc['loss_pct']}% loss (PnL: ${ptc['pnl']})")
+                    emailer.send_alert(
+                        f"Force-close: {coin} -{ptc['loss_pct']}%",
+                        f"Asset: {coin}\nLoss: {ptc['loss_pct']}%\nPnL: ${ptc['pnl']}\n"
+                        f"Balance: ${round_or_none(state.get('balance', 0), 2)}\n"
+                        f"Time: {datetime.now(timezone.utc).isoformat()}"
+                    )
                     try:
                         if is_long:
                             await hyperliquid.place_sell_order(coin, size)
@@ -459,6 +472,13 @@ def main():
                         )
                         if not allowed:
                             add_event(f"RISK BLOCKED {asset}: {reason}")
+                            if "circuit breaker" in reason.lower():
+                                emailer.send_alert(
+                                    "Circuit breaker active — trading halted",
+                                    f"Reason: {reason}\n"
+                                    f"Balance: ${round_or_none(state.get('balance', 0), 2)}\n"
+                                    f"Time: {datetime.now(timezone.utc).isoformat()}"
+                                )
                             with open(diary_path, "a") as f:
                                 f.write(json.dumps({
                                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -533,6 +553,7 @@ def main():
                             "opened_at": datetime.now().isoformat()
                         })
                         add_event(f"{action.upper()} {asset} amount {amount:.4f} at ~{current_price}")
+                        emailer.record_trade()
                         if rationale:
                             add_event(f"Post-trade rationale for {asset}: {rationale}")
                         # Write to diary after confirming fills status
