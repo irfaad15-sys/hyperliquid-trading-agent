@@ -170,10 +170,17 @@ class TradingAgent:
                 indicator = tool_input["indicator"]
 
                 # Fetch candles from Hyperliquid
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                # asyncio.run() cannot be called from a running event loop,
+                # so offload to a fresh thread that owns its own loop.
+                import concurrent.futures
+                try:
+                    asyncio.get_running_loop()
+                    in_async = True
+                except RuntimeError:
+                    in_async = False
+
+                if in_async:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                         candles = pool.submit(
                             asyncio.run,
                             self.hyperliquid.get_candles(asset, interval, 100)
