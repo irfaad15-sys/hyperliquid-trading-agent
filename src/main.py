@@ -77,7 +77,6 @@ def main():
     invocation_count = 0
     trade_log = []  # For Sharpe: list of returns
     active_trades = []  # {'asset','is_long','amount','entry_price','tp_oid','sl_oid','exit_plan'}
-    recent_events = deque(maxlen=200)
     diary_path = "diary.jsonl"
     initial_account_value = None
     total_return_pct = 0.0
@@ -87,7 +86,6 @@ def main():
     print(f"Starting trading agent for assets: {args.assets} at interval: {args.interval}")
 
     def add_event(msg: str):
-        """Log an informational event and push it into the recent events deque."""
         logging.info(msg)
 
     async def run_loop():
