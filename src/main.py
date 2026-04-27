@@ -80,6 +80,7 @@ def main():
     recent_events = deque(maxlen=200)
     diary_path = "diary.jsonl"
     initial_account_value = None
+    total_return_pct = 0.0
     # Perp mid-price history sampled each loop (authoritative, avoids spot/perp basis mismatch)
     price_history = {}
 
@@ -127,7 +128,7 @@ def main():
             total_return_pct = ((account_value - initial_account_value) / initial_account_value * 100.0) if initial_account_value else 0.0
 
             positions = []
-            for pos_wrap in state['positions']:
+            for pos_wrap in state.get('positions', []):
                 pos = pos_wrap
                 coin = pos.get('coin')
                 current_px = await hyperliquid.get_current_price(coin) if coin else None
@@ -143,7 +144,7 @@ def main():
 
             # --- RISK: Force-close positions that exceed max loss ---
             try:
-                positions_to_close = risk_mgr.check_losing_positions(state['positions'])
+                positions_to_close = risk_mgr.check_losing_positions(state.get('positions', []))
                 for ptc in positions_to_close:
                     coin = ptc["coin"]
                     size = ptc["size"]
@@ -260,7 +261,7 @@ def main():
 
             dashboard = {
                 "total_return_pct": round(total_return_pct, 2),
-                "balance": round_or_none(state['balance'], 2),
+                "balance": round_or_none(state.get('balance', 0), 2),
                 "account_value": round_or_none(account_value, 2),
                 "sharpe_ratio": round_or_none(sharpe, 3),
                 "positions": positions,
@@ -438,8 +439,8 @@ def main():
                 "reasoning": reasoning_text[:2000] if reasoning_text else "",
                 "decisions": cycle_decisions,
                 "account_value": round_or_none(account_value, 2),
-                "balance": round_or_none(state['balance'], 2),
-                "positions_count": len([p for p in state['positions'] if abs(float(p.get('szi') or 0)) > 0]),
+                "balance": round_or_none(state.get('balance', 0), 2),
+                "positions_count": len([p for p in state.get('positions', []) if abs(float(p.get('szi') or 0)) > 0]),
             }
             try:
                 with open("decisions.jsonl", "a") as f:
@@ -522,7 +523,7 @@ def main():
                                     break
                             except Exception:
                                 continue
-                        trade_log.append({"type": action, "price": current_price, "amount": amount, "exit_plan": output["exit_plan"], "filled": filled})
+                        trade_log.append({"type": action, "price": current_price, "amount": amount, "exit_plan": output.get("exit_plan", ""), "filled": filled})
                         tp_oid = None
                         sl_oid = None
                         if output.get("tp_price"):
@@ -549,7 +550,7 @@ def main():
                             "entry_price": current_price,
                             "tp_oid": tp_oid,
                             "sl_oid": sl_oid,
-                            "exit_plan": output["exit_plan"],
+                            "exit_plan": output.get("exit_plan", ""),
                             "opened_at": datetime.now().isoformat()
                         })
                         add_event(f"{action.upper()} {asset} amount {amount:.4f} at ~{current_price}")
