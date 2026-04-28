@@ -15,6 +15,7 @@ from src.loop.executor import execute_trades
 from src.loop.learning import load_recent_outcomes
 from src.loop.reconciler import fetch_fills, reconcile_active_trades
 from src.loop.state_builder import build_account_state
+from src.storage.db import init_db, load_active_trades, save_all_active_trades
 from src.utils.prompt_utils import json_default, round_or_none, round_series
 
 
@@ -60,10 +61,15 @@ async def run_loop(
     """Run the trading loop indefinitely until cancelled."""
     invocation_count = 0
     trade_log: list = []
-    active_trades: list = []
     initial_account_value: float | None = None
     total_return_pct: float = 0.0
     price_history: dict = {}
+
+    db_path = diary_path.replace(".jsonl", ".db").replace("diary", "state")
+    await init_db(db_path)
+    active_trades: list = await load_active_trades(db_path)
+    if active_trades:
+        logging.info(f"Restored {len(active_trades)} active trade(s) from DB")
 
     await hyperliquid.get_meta_and_ctxs()
     hip3_dexes = set()
@@ -164,6 +170,7 @@ async def run_loop(
             pass
 
         reconcile_active_trades(active_trades, state, open_orders_struct, diary_path)
+        await save_all_active_trades(db_path, active_trades)
         recent_fills = await fetch_fills(hyperliquid)
 
         dashboard = build_dashboard(
@@ -320,5 +327,6 @@ async def run_loop(
             initial_account_value=initial_account_value or 0,
             trade_log=trade_log,
         )
+        await save_all_active_trades(db_path, active_trades)
 
         await asyncio.sleep(interval_seconds)
