@@ -109,15 +109,19 @@ class RiskManager:
             )
         return True, ""
 
-    def check_balance_reserve(self, balance: float, initial_balance: float) -> tuple[bool, str]:
-        """Don't trade if balance falls below reserve threshold."""
-        if initial_balance <= 0:
+    def check_balance_reserve(self, account_value: float, initial_account_value: float) -> tuple[bool, str]:
+        """Don't trade if account value falls below reserve threshold.
+
+        Uses account_value (not withdrawable balance) so open-position collateral
+        does not trigger false blocks when the account is actually healthy.
+        """
+        if initial_account_value <= 0:
             return True, ""
-        min_balance = initial_balance * (self.min_balance_reserve_pct / 100.0)
-        if balance < min_balance:
+        min_value = initial_account_value * (self.min_balance_reserve_pct / 100.0)
+        if account_value < min_value:
             return False, (
-                f"Balance ${balance:.2f} below minimum reserve "
-                f"${min_balance:.2f} ({self.min_balance_reserve_pct}% of initial)"
+                f"Account value ${account_value:.2f} below minimum reserve "
+                f"${min_value:.2f} ({self.min_balance_reserve_pct}% of initial)"
             )
         return True, ""
 
@@ -225,8 +229,8 @@ class RiskManager:
         if not ok:
             return False, reason, trade
 
-        # 2. Balance reserve
-        ok, reason = self.check_balance_reserve(balance, initial_balance)
+        # 2. Balance reserve (uses account_value, not withdrawable balance)
+        ok, reason = self.check_balance_reserve(account_value, initial_balance)
         if not ok:
             return False, reason, trade
 
@@ -261,11 +265,27 @@ class RiskManager:
         if not ok:
             return False, reason, trade
 
-        # 7. Enforce mandatory stop-loss
+        # 7. Validate current price is known (C5)
         current_price = float(trade.get("current_price", 0))
-        entry_price = current_price if current_price > 0 else 1.0
+        if current_price <= 0:
+            return False, "Current price is 0 or unknown — cannot size or validate SL/TP", trade
+
+        # 8. Validate TP direction (C5)
+        tp_price = trade.get("tp_price")
+        if tp_price is not None:
+            tp_price = float(tp_price)
+            if is_buy and tp_price <= current_price:
+                logging.warning("RISK: Nullifying TP %.2f — must be above current price %.2f for long",
+                                tp_price, current_price)
+                trade = {**trade, "tp_price": None}
+            elif not is_buy and tp_price >= current_price:
+                logging.warning("RISK: Nullifying TP %.2f — must be below current price %.2f for short",
+                                tp_price, current_price)
+                trade = {**trade, "tp_price": None}
+
+        # 9. Enforce mandatory stop-loss
         sl_price = trade.get("sl_price")
-        enforced_sl = self.enforce_stop_loss(sl_price, entry_price, is_buy)
+        enforced_sl = self.enforce_stop_loss(sl_price, current_price, is_buy)
         if sl_price is None:
             logging.info("RISK: Auto-setting SL at %.2f (%.1f%% from entry)",
                         enforced_sl, self.mandatory_sl_pct)

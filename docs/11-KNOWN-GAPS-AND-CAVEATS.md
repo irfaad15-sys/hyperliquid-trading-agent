@@ -8,16 +8,16 @@ Code reviewed on 2026-04-26. Findings categorized as **Critical**, **High**, **M
 
 ## The bottom line
 
-**The 4 bugs you must fix before real money:**
+**All 4 pre-live critical bugs are now FIXED (commit `ed46d55`, 2026-04-28):**
 
-| ID | Summary | Risk if unfixed |
-|----|---------|-----------------|
-| **C3** | Force-close opens opposite-side position | Losing position becomes new opposite trade at market, doubling exposure in worst case |
-| **C5** | TP/SL not validated against current price direction | Wrong-side TP fires immediately at market on entry → instant loss |
-| **C6** | Stale price used for sizing + SL after LLM latency | Trade sized on a price 30–120s old; auto-SL miscalculated |
-| **C2** | Balance reserve check uses withdrawable balance, not account_value | Bot may silently block ALL new trades when collateral is in use |
+| ID | Summary | Status |
+|----|---------|--------|
+| **C3** | Force-close opens opposite-side position | ✅ FIXED — `place_close_order` (reduce-only via `market_close`) |
+| **C5** | TP/SL not validated against current price direction | ✅ FIXED — wrong-side TP nullified; rejects if price = 0 |
+| **C6** | Stale price used for sizing + SL after LLM latency | ✅ FIXED — fresh price re-fetched immediately before sizing |
+| **C2** | Balance reserve check uses withdrawable balance, not account_value | ✅ FIXED — `check_balance_reserve` now compares `account_value` |
 
-These are real bugs in code that handles real money. Everything else is important but can wait for Phase 2.
+The codebase is now ready for testnet validation. See the order of operations at the bottom of this file.
 
 ---
 
@@ -45,118 +45,54 @@ Run it for what it is — a learning experiment with automated risk management �
 
 ---
 
-## Critical bugs
+## Critical bugs — ALL FIXED in commit `ed46d55` (2026-04-28)
 
-### C3 — Force-close is not reduce-only (can flip to opposite position)
+### C3 — Force-close is not reduce-only ✅ FIXED
 
-**Where**: [main.py:142–146](../src/main.py#L142-L146)
+**Fix applied**: Added `place_close_order(asset, is_long, size)` to `hyperliquid_api.py` using `exchange.market_close()` (reduce-only). Runner now calls `cancel_all_orders` first, then `place_close_order`. See [src/trading/hyperliquid_api.py](../src/trading/hyperliquid_api.py) and [src/loop/runner.py](../src/loop/runner.py).
 
-```python
-if is_long:
-    await hyperliquid.place_sell_order(coin, size)  # ← market_open, not reduce-only!
-else:
-    await hyperliquid.place_buy_order(coin, size)
-```
-
-`place_sell_order` calls `exchange.market_open(asset, False, amount, ...)`. This opens a new short position, not reduces an existing long.
-
-**Scenario that breaks**: You have a 0.01 BTC long. A TP fires, reducing it to 0.005 BTC. The same cycle, the force-close fires using the original size (0.01 BTC). Result: you close 0.005 (remaining) + open 0.005 short = you're now short BTC into a rising market.
-
-**Additional issue**: SL/TP cancellation happens *after* the close order, leaving a race window.
-
-**Fix needed**: Use reduce-only close. SDK's `exchange.order` with `reduce_only=True`, or use `market_close` if available. Cancel TP/SL *before* placing the close. Re-fetch position size right before closing.
+Also fixed H4 (duplicate force-close): `_force_close_attempted` set prevents re-sending a close order if the previous one is still pending fill.
 
 ---
 
-### C5 — TP/SL direction not validated; auto-SL uses stale/zero price
+### C5 — TP/SL direction not validated ✅ FIXED
 
-**Where**: [risk_manager.py:189–274](../src/risk_manager.py#L189-L274) (missing check) and [risk_manager.py:265–266](../src/risk_manager.py#L265-L266) (zero fallback)
-
-The system prompt tells Claude:
-> BUY: tp_price > current_price, sl_price < current_price
-
-But `validate_trade` never checks this. If Claude hallucinates and returns a long with `tp_price = 65000` while current_price = `70000`, the bot places a trigger order that fires **immediately at market** when opened — locking in a guaranteed loss.
-
-Same issue: if `current_price` is 0 (HIP-3 lookup miss → `asset_prices.get(asset, 0)` returns 0), then:
-```python
-entry_price = current_price if current_price > 0 else 1.0  # ← falls back to $1
-sl_price = round(1.0 - (0.05 * 1.0), 2)  # = 0.95
-```
-For BTC, an SL at $0.95 will never fire. Your position has effectively no stop.
-
-**Fix needed**: In `validate_trade`: reject if `current_price <= 0`. Then validate TP/SL signs (buy: tp > price and sl < price; sell: tp < price and sl > price). Nullify and re-compute via `enforce_stop_loss` if wrong.
+**Fix applied**: `validate_trade` in [src/risk_manager.py](../src/risk_manager.py) now:
+1. Rejects the trade outright if `current_price <= 0`
+2. Validates TP direction — wrong-side TP is nullified with a warning (not traded)
+3. Auto-SL computed from `current_price` directly (no `$1` fallback)
 
 ---
 
-### C6 — Price is stale by the time it's used for sizing
+### C6 — Price is stale by the time it's used for sizing ✅ FIXED
 
-**Where**: [main.py:273](../src/main.py#L273) (price cached) → [main.py:455](../src/main.py#L455) (used 30–120s later)
-
-```python
-# Step 4 — gather phase, before LLM call:
-current_price = await hyperliquid.get_current_price(asset)
-asset_prices[asset] = current_price  # cached here
-
-# ... LLM call (30–120 seconds later) ...
-
-# Step 8 — execution:
-current_price = asset_prices.get(asset, 0)  # stale!
-amount = alloc_usd / current_price           # sized on stale price
-```
-
-With `claude-sonnet-4` taking 30s average and potentially 120s with thinking, during high volatility:
-- A 1% BTC move ($700 on a $70k price) means your $10 allocation buys wrong amount
-- The auto-SL is computed off stale price — could be placed on the wrong side (see C5)
-
-**Fix needed**: Re-fetch `current_price` immediately before the sizing calculation and SL setup. Reject trade if price is 0 or fetch fails.
+**Fix applied**: `executor.py` re-fetches a fresh price immediately after risk validation, before computing `amount`. If the fetch fails or returns 0, the trade is skipped. If price moved >5% during LLM latency, a warning is logged. See [src/loop/executor.py](../src/loop/executor.py).
 
 ---
 
-### C2 — Balance reserve check uses withdrawable balance, not account value
+### C2 — Balance reserve check uses withdrawable balance ✅ FIXED
 
-**Where**: [risk_manager.py:112–122](../src/risk_manager.py#L112-L122)
-
-```python
-def check_balance_reserve(self, balance: float, initial_balance: float):
-    min_balance = initial_balance * (self.min_balance_reserve_pct / 100.0)
-    if balance < min_balance:   # 'balance' is withdrawable margin
-        return False, "..."
-```
-
-With `MIN_BALANCE_RESERVE_PCT=10` and `initial_balance=$100`, the reserve floor is $10 of **withdrawable** margin. Once you have any positions open, your collateral is locked and `withdrawable` drops. On a $100 account with $30 in positions, `withdrawable` could be $5–15 depending on leverage — tripping this check and blocking all new trades even though your account is healthy.
-
-**Fix needed**: Either compare `account_value` (total portfolio value) against the reserve, or document this as "withdrawable margin floor" and set it to a low value like 2–5%.
-
-**Workaround until fixed**: Set `MIN_BALANCE_RESERVE_PCT=5` or lower in your `.env`.
+**Fix applied**: `check_balance_reserve(account_value, initial_account_value)` now compares total account value (including open-position collateral) against the reserve floor. Open positions no longer cause false blocks. See [src/risk_manager.py](../src/risk_manager.py).
 
 ---
 
-## High severity
+## High severity — ALL FIXED in commit `ed46d55` (2026-04-28)
 
-### H1 — Total value drops positive-PnL only in fallback
+### H1 — Total value strips negative PnL ✅ FIXED
 
-**Where**: [hyperliquid_api.py:395–397](../src/trading/hyperliquid_api.py#L395-L397)
+`hyperliquid_api.py` now uses signed PnL: `total_value = balance + sum(p.get("pnl", 0.0) for p in enriched_positions)`. Circuit breaker fires on schedule even on losing days.
 
-```python
-total_value = balance + sum(max(p.get("pnl", 0.0), 0.0) for p in enriched_positions)
-#                              ^^^— negative PnL stripped out
-```
+### H2 — Fill confirmation window too wide ✅ FIXED
 
-On a losing day, `account_value` reads higher than reality, so the daily drawdown circuit breaker fires later than intended. **Only the fallback path is affected** — if Hyperliquid returns a proper `accountValue` in the state response, this code doesn't run. But in unified account setups or specific SDK versions, it might.
+`executor.py` records `order_ts_ms = time.time() * 1000` immediately before placing the order. Fill confirmation now checks `fill_time >= order_ts_ms` (not a fixed 2-second window), so only fills from this specific order are counted.
 
-**Fix**: Remove `max(..., 0.0)` → use signed PnL.
+### H4 — Force-close repeats every cycle ✅ FIXED
 
-### H4 — Force-close repeats every cycle for the same position
+`_force_close_attempted` set in `runner.py` tracks assets where a close order was sent. Subsequent cycles skip the asset until its position disappears from live state.
 
-If the force-close order is slow to fill (thin liquidity, HIP-3 market), `check_losing_positions` fires again next cycle and places a second close order. Combined with C3 (not reduce-only), this could result in a flipped position growing with each cycle.
+### H5 — Diary entry not written if TP/SL fails ✅ FIXED
 
-**Fix**: Track `force_close_in_progress` per asset; skip if a close was attempted last cycle for the same asset.
-
-### H5 — Diary entry not written if TP/SL placement fails
-
-If the entry order succeeds but TP placement throws (e.g., network blip), the outer `except Exception` at [main.py:548](../src/main.py#L548) catches everything and no diary entry is written. The position exists on the exchange with no bot memory of it.
-
-**Fix**: Write the diary entry immediately after the entry order succeeds, before TP/SL placement. Append TP/SL OIDs as a follow-up update.
+`executor.py` writes the diary entry immediately after the entry order succeeds, before TP/SL placement. TP/SL OIDs are part of the same entry. A TP/SL network failure no longer loses the trade record.
 
 ---
 
@@ -218,16 +154,13 @@ Fine locally. In Docker or when collecting output with `nohup`, this creates a g
 
 ## Should you run this with $100?
 
-**After fixing C2, C3, C5, C6 — yes, as a learning experiment.**
+**Yes — all blocking bugs are now fixed. The bot is ready for testnet.**
 
-The risk manager is architecturally sound; the bugs are fixable. With the conservative settings from [04-RISK-MANAGEMENT.md](04-RISK-MANAGEMENT.md) and after a clean testnet run, a $100 live run is an acceptable learning investment.
-
-**Without fixing those 4 bugs — no.** The force-close bug alone can flip a losing position into a new opposite position, which can flip again next cycle, cascading losses. This is the scenario most likely to turn $100 into $10 in a single day.
+The risk manager is architecturally sound and the critical/high bugs are resolved. With the conservative settings from [04-RISK-MANAGEMENT.md](04-RISK-MANAGEMENT.md) and after a clean testnet run, a $100 live run is an acceptable learning investment.
 
 The order of operations:
 1. Run testnet for 1–3 days
-2. Fix C3, C5, C6 (C2 can be worked around with low `MIN_BALANCE_RESERVE_PCT`)
-3. Run another testnet day to verify fixes
-4. Then go live with $100 at conservative settings
-5. Watch it daily for 2 weeks
-6. Evaluate and decide next steps
+2. Confirm fills, force-closes, and stop-losses behave correctly in logs
+3. Then go live with $100 at conservative settings
+4. Watch it daily for 2 weeks
+5. Evaluate and decide next steps

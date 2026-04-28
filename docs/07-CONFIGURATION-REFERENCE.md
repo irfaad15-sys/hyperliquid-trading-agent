@@ -105,7 +105,7 @@ Valid suffixes: `m` (minutes), `h` (hours), `d` (days).
 See [04-RISK-MANAGEMENT.md](04-RISK-MANAGEMENT.md) for detailed explanation of each guard.
 
 ### `MAX_POSITION_PCT`
-**Default in code**: `20` | **README claims**: 10
+**Default in code**: `20`
 
 Max single trade as a percent of account value. Excess allocation is capped (not rejected).
 
@@ -138,7 +138,7 @@ MAX_LEVERAGE=3    # conservative — for first run
 ---
 
 ### `MAX_TOTAL_EXPOSURE_PCT`
-**Default in code**: `80` | **README claims**: 50
+**Default in code**: `80`
 
 Max sum of all position notionals as % of account value. New trades that would exceed this are rejected.
 
@@ -149,7 +149,7 @@ MAX_TOTAL_EXPOSURE_PCT=30   # conservative — recommended for first run
 ---
 
 ### `DAILY_LOSS_CIRCUIT_BREAKER_PCT`
-**Default in code**: `25` | **README claims**: 10
+**Default in code**: `25`
 
 Stops new trades when account drops this % from today's high watermark. Resets at UTC midnight. Does not close existing positions.
 
@@ -182,7 +182,7 @@ MAX_CONCURRENT_POSITIONS=3   # focus on fewer trades with $100 — recommended
 ---
 
 ### `MIN_BALANCE_RESERVE_PCT`
-**Default in code**: `10` | **README claims**: 20
+**Default in code**: `10`
 
 Don't trade if balance falls below this % of initial balance. **Bug C2**: this checks withdrawable balance, not account value — may silently disable trading when collateral is in use.
 

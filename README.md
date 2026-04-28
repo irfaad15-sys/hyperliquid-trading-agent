@@ -25,14 +25,14 @@ All enforced in code, not just LLM prompts. Configurable via `.env`:
 
 | Guard | Default | Description |
 |-------|---------|-------------|
-| Max Position Size | 10% | Single position capped at 10% of portfolio |
-| Force Close | -20% | Auto-close positions at 20% loss |
-| Max Leverage | 10x | Hard leverage cap |
-| Total Exposure | 50% | All positions combined capped at 50% |
-| Daily Circuit Breaker | -10% | Stops new trades at 10% daily drawdown |
-| Mandatory Stop-Loss | 5% | Auto-set SL if LLM doesn't provide one |
-| Max Positions | 10 | Concurrent position limit |
-| Balance Reserve | 20% | Don't trade below 20% of initial balance |
+| **Max Position Size** | 20% | Single position capped at 20% of portfolio |
+| **Force Close** | 20% | Auto-close positions at 20% loss |
+| **Max Leverage** | 10x | Hard leverage cap |
+| **Total Exposure** | 80% | All positions combined capped at 80% |
+| **Daily Circuit Breaker** | 25% | Stops new trades at 25% daily drawdown |
+| **Mandatory Stop-Loss** | 5% | Auto-set SL if LLM doesn't provide one |
+| **Max Positions** | 10 | Concurrent position limit |
+| **Balance Reserve** | 10% | Don't trade below 10% of initial balance |
 
 ## Setup
 

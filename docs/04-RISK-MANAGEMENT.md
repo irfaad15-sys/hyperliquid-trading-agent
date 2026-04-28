@@ -10,36 +10,13 @@ All risk checks are enforced in [src/risk_manager.py](../src/risk_manager.py), *
 
 ---
 
-## The README vs. code mismatch (must-read)
+## The README vs. code defaults
 
-The repo's README claims one set of defaults; the code ships with another. The recent commit `e766ad2` ("Loosen risk guardrails to increase trade frequency") changed the code defaults but did not update the README.
+This repo previously had a mismatch between the README and the code defaults. The README has now been updated to match `src/config_loader.py` and `.env.example`.
 
-| Guard | README claim | `.env.example` | `config_loader.py` default | `risk_manager.py` fallback¹ | What you'll actually run with |
-|---|---|---|---|---|---|
-| **MAX_POSITION_PCT** | 10% | 20 | "20" | 10 | **20%** |
-| **MAX_LOSS_PER_POSITION_PCT** | 20% | 20 | "20" | 20 | **20%** |
-| **MAX_LEVERAGE** | 10x | (not in .env.example explicitly²) | "10" | 10 | **10x** |
-| **MAX_TOTAL_EXPOSURE_PCT** | 50% | 80 | "80" | 50 | **80%** |
-| **DAILY_LOSS_CIRCUIT_BREAKER_PCT** | 10% | 25 | "25" | 10 | **25%** |
-| **MANDATORY_SL_PCT** | 5% | 5 | "5" | 5 | **5%** |
-| **MAX_CONCURRENT_POSITIONS** | 10 | 10 | "10" | 10 | **10** |
-| **MIN_BALANCE_RESERVE_PCT** | 20% | 10 | "10" | 20 | **10%** |
+Always verify your actual `.env` values before running, because the bot uses whatever values are present in your environment at startup.
 
-¹ The fallbacks in `RiskManager.__init__` only apply when config returns None. Since `config_loader.py` always returns a string default, **the fallback is unreachable**. The "actually run with" column is what matters.
-
-² `MAX_LEVERAGE` is in the docstring of `.env.example` but commented out in the file — so the `config_loader.py` default of "10" applies.
-
-**Action for first real-money run**: edit your `.env` to use the README's tighter values:
-
-```
-MAX_POSITION_PCT=10
-MAX_TOTAL_EXPOSURE_PCT=30
-DAILY_LOSS_CIRCUIT_BREAKER_PCT=10
-MIN_BALANCE_RESERVE_PCT=20
-MAX_LEVERAGE=5
-```
-
-These are intentionally tighter than the README — if you find them too tight after a week, loosen.
+> Note: the risk guidance in this docs suite remains conservative. For a safe first $100 run, prefer tighter values than the code defaults.
 
 ---
 

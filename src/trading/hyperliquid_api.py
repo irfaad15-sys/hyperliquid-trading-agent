@@ -222,6 +222,21 @@ class HyperliquidAPI:
         order_type = {"limit": {"tif": tif}}
         return await self._retry(lambda: self.exchange.order(asset, False, amount, limit_price, order_type))
 
+    async def place_close_order(self, asset: str, is_long: bool, size: float, slippage: float = 0.01):
+        """Close an existing position using a reduce-only market order.
+
+        Unlike place_sell_order / place_buy_order which call market_open and can
+        overshoot into an opposite-side position, this calls market_close which
+        is strictly reduce-only — it can never exceed the current position size.
+
+        Args:
+            asset:   Market symbol.
+            is_long: True if the position being closed is long.
+            size:    Contract size to close.
+        """
+        size = self.round_size(asset, size)
+        return await self._retry(lambda: self.exchange.market_close(asset, size, slippage))
+
     async def place_take_profit(self, asset, is_buy, amount, tp_price):
         """Create a reduce-only trigger order that executes a take-profit exit.
 
@@ -393,7 +408,7 @@ class HyperliquidAPI:
                 logging.warning("Failed to fetch spot state for unified account: %s", e)
 
         if not total_value:
-            total_value = balance + sum(max(p.get("pnl", 0.0), 0.0) for p in enriched_positions)
+            total_value = balance + sum(p.get("pnl", 0.0) for p in enriched_positions)
         return {"balance": balance, "total_value": total_value, "positions": enriched_positions}
 
     async def get_current_price(self, asset):
