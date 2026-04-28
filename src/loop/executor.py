@@ -71,13 +71,14 @@ async def execute_trades(
 
                 alloc_usd = float(output.get("allocation_usd", alloc_usd))
 
-                # Replace LLM size with Kelly sizing when enough history exists
+                # Cap LLM allocation with Kelly sizing when enough history exists
                 balance = float(state.get("balance", 0))
                 max_pos_usd = balance * (risk_mgr.max_position_pct / 100.0)
                 kelly_usd = kelly_size_usd(diary_path, balance, max_pos_usd)
                 if kelly_usd is not None and kelly_usd > 0:
-                    logging.info(f"Kelly sizing {asset}: ${kelly_usd:.2f} (was ${alloc_usd:.2f})")
-                    alloc_usd = kelly_usd
+                    if alloc_usd > kelly_usd:
+                        logging.info(f"Kelly cap {asset}: ${alloc_usd:.2f} → ${kelly_usd:.2f}")
+                        alloc_usd = kelly_usd
 
                 amount = alloc_usd / current_price
 
@@ -97,8 +98,9 @@ async def execute_trades(
                     else:
                         order = await hyperliquid.place_sell_order(asset, amount)
 
-                # Confirm fill within 30-second window
-                await asyncio.sleep(1)
+                # Confirm fill within 30-second window (skipped in simulation)
+                if not getattr(hyperliquid, 'is_simulation', False):
+                    await asyncio.sleep(1)
                 fills_check = await hyperliquid.get_recent_fills(limit=10)
                 cutoff_ms = (time.time() - 30) * 1000
                 filled = False
@@ -147,7 +149,7 @@ async def execute_trades(
                     "tp_oid": tp_oid,
                     "sl_oid": sl_oid,
                     "exit_plan": output.get("exit_plan", ""),
-                    "opened_at": datetime.now().isoformat(),
+                    "opened_at": datetime.now(timezone.utc).isoformat(),
                 })
                 logging.info(f"{action.upper()} {asset} amount {amount:.4f} at ~{current_price}")
                 emailer.record_trade()
@@ -159,6 +161,7 @@ async def execute_trades(
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "asset": asset,
                         "action": action,
+                        "is_long": is_buy,
                         "order_type": order_type,
                         "limit_price": limit_price,
                         "allocation_usd": alloc_usd,
@@ -179,7 +182,7 @@ async def execute_trades(
                 logging.info(f"Hold {asset}: {output.get('rationale', '')}")
                 with open(diary_path, "a") as f:
                     f.write(json.dumps({
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                         "asset": asset,
                         "action": "hold",
                         "rationale": output.get("rationale", ""),

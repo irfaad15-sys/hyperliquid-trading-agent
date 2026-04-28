@@ -10,6 +10,8 @@ class SimulatedAPI:
     are made. Tracks simulated orders and balance.
     """
 
+    is_simulation = True  # signals executor.py to skip fill-confirmation sleep
+
     def __init__(self, ohlcv: dict[str, list[dict]], initial_balance: float = 10_000.0):
         """
         Args:

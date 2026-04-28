@@ -92,6 +92,10 @@ def _compute_report(initial_balance: float, final_balance: float, fills: list[di
     }
 
 
+class _BacktestDone(Exception):
+    pass
+
+
 async def run_backtest(
     agent,
     risk_mgr,
@@ -121,7 +125,7 @@ async def run_backtest(
         for _ in range(candles_per_step):
             sim.advance()
         if sim.is_done():
-            raise StopIteration("backtest complete")
+            raise _BacktestDone()
         await original_sleep(0)  # yield control without blocking
 
     asyncio.sleep = _patched_sleep  # type: ignore[assignment]
@@ -146,7 +150,7 @@ async def run_backtest(
             start_time=datetime.now(timezone.utc),
             diary_path=diary_path,
         )
-    except StopIteration:
+    except _BacktestDone:
         pass
     finally:
         asyncio.sleep = original_sleep  # type: ignore[assignment]

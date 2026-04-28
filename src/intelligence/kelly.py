@@ -44,15 +44,23 @@ def _parse_trade_returns(diary_path: str, window: int) -> list[float]:
     for entry in entries:
         asset = entry.get("asset", "")
         action = entry.get("action")
-        if action == "buy":
+        is_long = entry.get("is_long", True)  # default True for legacy entries
+
+        if action in ("buy", "sell") and is_long == (action == "buy"):
+            # Opening a position: buy=open-long, sell=open-short
             pending[asset] = entry
-        elif action == "sell":
-            buy = pending.pop(asset, None)
-            if buy:
-                entry_px = float(buy.get("entry_price") or 0)
+        elif action in ("buy", "sell") and is_long != (action == "buy"):
+            # Closing a position: sell=close-long, buy=close-short
+            open_entry = pending.pop(asset, None)
+            if open_entry:
+                entry_px = float(open_entry.get("entry_price") or 0)
                 exit_px = float(entry.get("entry_price") or 0)
                 if entry_px > 0 and exit_px > 0:
-                    returns.append((exit_px - entry_px) / entry_px * 100)
+                    if open_entry.get("is_long", True):
+                        ret = (exit_px - entry_px) / entry_px * 100
+                    else:
+                        ret = (entry_px - exit_px) / entry_px * 100
+                    returns.append(ret)
         elif action == "risk_force_close":
             pending.pop(asset, None)
             loss_pct = entry.get("loss_pct")

@@ -8,6 +8,7 @@ import os
 import traceback
 from collections import OrderedDict, deque
 from datetime import datetime, timezone
+from pathlib import Path
 
 from src.indicators.local_indicators import compute_all, last_n, latest
 from src.loop.dashboard import build_dashboard
@@ -65,7 +66,8 @@ async def run_loop(
     total_return_pct: float = 0.0
     price_history: dict = {}
 
-    db_path = diary_path.replace(".jsonl", ".db").replace("diary", "state")
+    _p = Path(diary_path)
+    db_path = str(_p.with_name(_p.stem.replace("diary", "state") + ".db"))
     await init_db(db_path)
     active_trades: list = await load_active_trades(db_path)
     if active_trades:
@@ -131,6 +133,7 @@ async def run_loop(
                     for tr in active_trades[:]:
                         if tr.get('asset') == coin:
                             active_trades.remove(tr)
+                    await save_all_active_trades(db_path, active_trades)
                     with open(diary_path, "a") as f:
                         f.write(json.dumps({
                             "timestamp": datetime.now(timezone.utc).isoformat(),
